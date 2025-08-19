@@ -13,6 +13,12 @@ use super::{
 };
 use crate::{corejs3::compat::DATA as CORE_JS_COMPAT_DATA, Versions};
 
+/// Check if a feature is an iterator helper that should be enabled by default.
+/// Iterator helpers are part of ES2025 and should not require shipped_proposals.
+fn is_iterator_helper(feature: &str) -> bool {
+    feature.starts_with("esnext.iterator.") || feature.starts_with("esnext.async-iterator.")
+}
+
 pub(crate) struct UsageVisitor {
     shipped_proposals: bool,
     is_any_target: bool,
@@ -71,7 +77,12 @@ impl UsageVisitor {
 
         self.required.extend(features.filter(|f| {
             if !*shipped_proposals && f.starts_with("esnext.") {
-                return false;
+                // Iterator helpers are part of ES2025 and should be enabled by default
+                if is_iterator_helper(f) {
+                    // Allow iterator helpers even when shipped_proposals is false
+                } else {
+                    return false;
+                }
             }
 
             let feature = CORE_JS_COMPAT_DATA.get(f);
