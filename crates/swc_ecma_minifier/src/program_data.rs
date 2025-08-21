@@ -1,7 +1,7 @@
 use std::collections::hash_map::Entry;
 
 use indexmap::IndexSet;
-use rustc_hash::{FxBuildHasher, FxHashMap};
+use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
 use swc_atoms::Atom;
 use swc_common::SyntaxContext;
 use swc_ecma_ast::*;
@@ -17,6 +17,15 @@ use swc_ecma_usage_analyzer::{
 };
 use swc_ecma_utils::{Merge, Type, Value};
 use swc_ecma_visit::VisitWith;
+
+/// Represents a value passed as an argument at a call site
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum CallSiteArg {
+    /// Literal value (undefined, null, number, string, boolean)
+    Literal(Lit),
+    /// Identifier reference
+    Ident(Id),
+}
 
 pub(crate) fn analyze<N>(n: &N, marks: Option<Marks>, collect_property_atoms: bool) -> ProgramData
 where
@@ -128,6 +137,14 @@ pub(crate) struct VarUsageInfo {
     infects_to: Vec<Access>,
     /// Only **string** properties.
     pub(crate) accessed_props: FxHashMap<Atom, u32>,
+    
+    /// For functions: tracks the arguments passed at each call site.
+    /// The outer Vec represents parameters, the inner Vec represents call sites.
+    /// None means the parameter was not provided (undefined).
+    pub(crate) call_site_args: Vec<Vec<Option<CallSiteArg>>>,
+    
+    /// Tracks which parameters have been inlined (by index)
+    pub(crate) inlined_params: FxHashSet<usize>,
 }
 
 impl Default for VarUsageInfo {
@@ -146,6 +163,8 @@ impl Default for VarUsageInfo {
             callee_count: Default::default(),
             infects_to: Default::default(),
             accessed_props: Default::default(),
+            call_site_args: Default::default(),
+            inlined_params: Default::default(),
         }
     }
 }
@@ -553,6 +572,31 @@ impl Storage for ProgramData {
 
     fn get_var_data(&self, id: Id) -> Option<&Self::VarData> {
         self.vars.get(&id).map(|v| v.as_ref())
+    }
+    
+    fn track_call_site_arg(&mut self, fn_id: Id, param_idx: usize, arg: Option<&Expr>) {
+        let var_info = self.vars.entry(fn_id).or_default();
+        
+        // Initialize call_site_args if needed
+        while var_info.call_site_args.len() <= param_idx {
+            var_info.call_site_args.push(Vec::new());
+        }
+        
+        // Convert the argument expression to CallSiteArg
+        let call_arg = match arg {
+            None => None,
+            Some(expr) => match expr {
+                Expr::Lit(lit) => Some(CallSiteArg::Literal(lit.clone())),
+                Expr::Ident(ident) => Some(CallSiteArg::Ident(ident.to_id())),
+                Expr::Unary(UnaryExpr { op: op!("void"), arg, .. }) if arg.is_lit() => {
+                    // `void 0` is undefined
+                    Some(CallSiteArg::Literal(Lit::Undefined(Undefined { span: expr.span() })))
+                }
+                _ => return, // Not a constant value, bail out
+            }
+        };
+        
+        var_info.call_site_args[param_idx].push(call_arg);
     }
 }
 

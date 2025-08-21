@@ -42,6 +42,8 @@ pub trait Storage: Sized + Default {
     fn mark_property_mutation(&mut self, id: Id);
 
     fn get_var_data(&self, id: Id) -> Option<&Self::VarData>;
+    
+    fn track_call_site_arg(&mut self, fn_id: Id, param_idx: usize, arg: Option<&Expr>);
 }
 
 pub trait ScopeDataLike: Sized + Default + Clone {

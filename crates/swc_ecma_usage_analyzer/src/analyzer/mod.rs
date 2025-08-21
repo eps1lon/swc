@@ -421,6 +421,23 @@ where
         if let Callee::Expr(callee) = &n.callee {
             for_each_id_ref_in_expr(callee, &mut |i| {
                 self.data.var_or_default(i.to_id()).mark_used_as_callee();
+                
+                // Track arguments for parameter inlining
+                for (param_idx, arg) in n.args.iter().enumerate() {
+                    if arg.spread.is_none() {
+                        self.data.track_call_site_arg(i.to_id(), param_idx, Some(&arg.expr));
+                    }
+                }
+                
+                // Track missing arguments as undefined
+                if let Some(fn_data) = self.data.get_var_data(i.to_id()) {
+                    if fn_data.callee_count > 0 {
+                        // This is a function being called
+                        let arg_count = n.args.iter().filter(|a| a.spread.is_none()).count();
+                        // We'll need to know the function's parameter count to track missing args
+                        // This will be handled later when we know the function signature
+                    }
+                }
             });
 
             match &**callee {

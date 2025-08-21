@@ -398,6 +398,128 @@ impl Optimizer<'_> {
             false
         }
     }
+    
+    /// Inline parameters that have the same value at all call sites
+    fn inline_params(&mut self, fn_id: &Ident, function: &mut Function) {
+        if !self.options.unused || self.mode.preserve_vars() {
+            return;
+        }
+        
+        let Some(fn_data) = self.data.vars.get(&fn_id.to_id()) else {
+            return;
+        };
+        
+        // Skip if function has eval or with
+        if let Some(scope) = self.data.scopes.get(&self.ctx.scope) {
+            if scope.intersects(ScopeData::HAS_EVAL_CALL.union(ScopeData::HAS_WITH_STMT)) {
+                return;
+            }
+        }
+        
+        // Skip if no call sites
+        if fn_data.callee_count == 0 {
+            return;
+        }
+        
+        let mut params_to_inline = Vec::new();
+        
+        // Check each parameter
+        for (param_idx, param) in function.params.iter().enumerate() {
+            // Only handle simple identifier patterns
+            let Pat::Ident(param_ident) = &param.pat else {
+                continue;
+            };
+            
+            // Get all values passed for this parameter
+            let Some(call_args) = fn_data.call_site_args.get(param_idx) else {
+                continue;
+            };
+            
+            // Skip if not all call sites provided this parameter
+            if call_args.len() != fn_data.callee_count as usize {
+                continue;
+            }
+            
+            // Check if all call sites pass the same value
+            let first_arg = &call_args[0];
+            let all_same = call_args.iter().all(|arg| arg == first_arg);
+            
+            if !all_same {
+                continue;
+            }
+            
+            // Check if the value is safe to inline
+            let value = match first_arg {
+                Some(CallSiteArg::Literal(lit)) => {
+                    // Literals are always safe to inline
+                    Some(Expr::Lit(lit.clone()))
+                }
+                Some(CallSiteArg::Ident(_)) => {
+                    // For now, skip identifier inlining to keep it simple
+                    None
+                }
+                None => {
+                    // All call sites pass undefined
+                    Some(Expr::Undefined(Undefined { span: DUMMY_SP }))
+                }
+            };
+            
+            if let Some(value) = value {
+                params_to_inline.push((param_idx, param_ident.id.clone(), value));
+            }
+        }
+        
+        if params_to_inline.is_empty() {
+            return;
+        }
+        
+        // Create variable declarations for inlined parameters
+        let mut new_vars = Vec::new();
+        for (_, param_id, value) in &params_to_inline {
+            new_vars.push(VarDeclarator {
+                span: DUMMY_SP,
+                name: Pat::Ident(BindingIdent {
+                    id: param_id.clone(),
+                    type_ann: None,
+                }),
+                init: Some(Box::new(value.clone())),
+                definite: false,
+            });
+        }
+        
+        // Add variable declarations at the beginning of the function
+        if !new_vars.is_empty() {
+            let var_decl = Stmt::Decl(Decl::Var(Box::new(VarDecl {
+                span: DUMMY_SP,
+                kind: VarDeclKind::Const,
+                declare: false,
+                decls: new_vars,
+                ctxt: Default::default(),
+            })));
+            
+            if let Some(body) = &mut function.body {
+                body.stmts.insert(0, var_decl);
+            }
+        }
+        
+        // Mark parameters as inlined
+        if let Some(fn_data) = self.data.vars.get_mut(&fn_id.to_id()) {
+            for (idx, _, _) in &params_to_inline {
+                fn_data.inlined_params.insert(*idx);
+            }
+        }
+        
+        // Remove inlined parameters
+        let mut param_indices_to_remove: Vec<_> = params_to_inline.iter().map(|(idx, _, _)| *idx).collect();
+        param_indices_to_remove.sort_by(|a, b| b.cmp(a)); // Sort in reverse order
+        
+        for idx in param_indices_to_remove {
+            function.params.remove(idx);
+        }
+        
+        self.changed = true;
+        report_change!("inline: Inlined {} parameters", params_to_inline.len());
+    }
 
     fn handle_stmts(&mut self, stmts: &mut Vec<Stmt>, will_terminate: bool) {
         // Skip if `use asm` exists.
@@ -1646,6 +1768,28 @@ impl VisitMut for Optimizer<'_> {
 
         self.ignore_unused_args_of_iife(e);
         self.inline_args_of_iife(e);
+        
+        // Remove arguments for inlined parameters
+        if let Callee::Expr(callee) = &e.callee {
+            if let Expr::Ident(fn_id) = &**callee {
+                if let Some(fn_data) = self.data.vars.get(&fn_id.to_id()) {
+                    if !fn_data.inlined_params.is_empty() {
+                        // Remove arguments corresponding to inlined parameters
+                        let mut new_args = Vec::new();
+                        for (idx, arg) in e.args.iter().enumerate() {
+                            if !fn_data.inlined_params.contains(&idx) {
+                                new_args.push(arg.clone());
+                            }
+                        }
+                        if new_args.len() != e.args.len() {
+                            e.args = new_args;
+                            self.changed = true;
+                            report_change!("inline: Removed arguments for inlined parameters");
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[cfg_attr(feature = "debug", tracing::instrument(level = "debug", skip_all))]
@@ -2054,6 +2198,7 @@ impl VisitMut for Optimizer<'_> {
             .or_insert_with(|| FnMetadata::from(&*f.function));
 
         self.drop_unused_params(&mut f.function.params);
+        self.inline_params(&f.ident, &mut f.function);
 
         let ctx = self
             .ctx
@@ -2077,6 +2222,11 @@ impl VisitMut for Optimizer<'_> {
             if e.ident.is_some() && !contains_eval(&e.function, true) {
                 self.remove_name_if_not_used(&mut e.ident);
             }
+        }
+
+        // Apply parameter inlining to function expressions  
+        if let Some(ident) = &e.ident {
+            self.inline_params(ident, &mut e.function);
         }
 
         let ctx = self
