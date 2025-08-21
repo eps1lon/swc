@@ -36,6 +36,7 @@ use crate::{
     util::{contains_leaping_continue_with_label, make_number, ExprOptExt, ModuleItemExt},
 };
 
+mod analyze_params;
 mod arguments;
 mod bools;
 mod conditionals;
@@ -44,6 +45,7 @@ mod evaluate;
 mod if_return;
 mod iife;
 mod inline;
+mod inline_params;
 mod loops;
 mod ops;
 mod props;
@@ -2054,6 +2056,9 @@ impl VisitMut for Optimizer<'_> {
             .or_insert_with(|| FnMetadata::from(&*f.function));
 
         self.drop_unused_params(&mut f.function.params);
+        
+        // Inline parameters with consistent values
+        self.inline_params_with_consistent_values(&mut f.function, &f.ident.to_id());
 
         let ctx = self
             .ctx
@@ -2077,6 +2082,11 @@ impl VisitMut for Optimizer<'_> {
             if e.ident.is_some() && !contains_eval(&e.function, true) {
                 self.remove_name_if_not_used(&mut e.ident);
             }
+        }
+        
+        // Inline parameters with consistent values for named function expressions
+        if let Some(ident) = &e.ident {
+            self.inline_params_with_consistent_values(&mut e.function, &ident.to_id());
         }
 
         let ctx = self

@@ -128,6 +128,20 @@ pub(crate) struct VarUsageInfo {
     infects_to: Vec<Access>,
     /// Only **string** properties.
     pub(crate) accessed_props: FxHashMap<Atom, u32>,
+    
+    /// Track values passed to this parameter at all callsites.
+    /// Used for parameter inlining optimization.
+    pub(crate) param_values: Option<ParameterValues>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ParameterValues {
+    /// The consistent value passed at all callsites, if any
+    pub consistent_value: Option<Box<Expr>>,
+    /// Number of callsites we've seen
+    pub callsite_count: u32,
+    /// Whether all callsites pass the same value
+    pub is_consistent: bool,
 }
 
 impl Default for VarUsageInfo {
@@ -146,6 +160,7 @@ impl Default for VarUsageInfo {
             callee_count: Default::default(),
             infects_to: Default::default(),
             accessed_props: Default::default(),
+            param_values: Default::default(),
         }
     }
 }

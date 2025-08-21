@@ -174,6 +174,11 @@ impl Compressor<'_> {
             let _timer = timer!("apply full optimizer");
 
             let mut data = analyze(&*n, Some(self.marks), false);
+            
+            // Analyze parameter values for inlining optimization
+            if let Program::Module(module) = n {
+                self::optimize::analyze_params::analyze_param_values(module, &mut data);
+            }
 
             // TODO: reset_opt_flags
             //
