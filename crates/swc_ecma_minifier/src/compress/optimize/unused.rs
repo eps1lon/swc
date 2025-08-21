@@ -148,8 +148,8 @@ impl Optimizer<'_> {
             return;
         }
 
-        for param in params.iter_mut().rev() {
-            self.take_pat_if_unused(&mut param.pat, None, false);
+        for (idx, param) in params.iter_mut().enumerate().rev() {
+            self.take_pat_if_unused_as_param(&mut param.pat, idx, None, false);
 
             if !param.pat.is_invalid() {
                 break;
@@ -165,8 +165,8 @@ impl Optimizer<'_> {
             return;
         }
 
-        for param in params.iter_mut().rev() {
-            self.take_pat_if_unused(param, None, false);
+        for (idx, param) in params.iter_mut().enumerate().rev() {
+            self.take_pat_if_unused_as_param(param, idx, None, false);
 
             if !param.is_invalid() {
                 break;
@@ -462,6 +462,127 @@ impl Optimizer<'_> {
             }
             _ => {}
         }
+    }
+
+    pub(super) fn take_pat_if_unused_as_param(
+        &mut self,
+        name: &mut Pat,
+        param_idx: usize,
+        init: Option<&mut Expr>,
+        is_var_decl: bool,
+    ) {
+        // For function parameters that are destructured, we need to check which properties
+        // are actually accessed in the transformed code
+        if let Pat::Object(obj) = name {
+            // Check if we're in a context where we can analyze property usage
+            if self.ctx.bit_ctx.contains(BitCtx::InParam) {
+                // Try to find variable usage info for the transformed parameter
+                // In transformed code, destructuring params become member expressions on a single param
+                // We need to check which properties are accessed
+                
+                // If a rest pattern exists, we can't remove anything
+                if obj
+                    .props
+                    .iter()
+                    .any(|p| matches!(p, ObjectPatProp::Rest(_)))
+                {
+                    return self.take_pat_if_unused(name, init, is_var_decl);
+                }
+
+                // Mark unused properties for removal
+                let mut has_changes = false;
+                for prop in &mut obj.props {
+                    match prop {
+                        ObjectPatProp::KeyValue(p) => {
+                            if p.key.is_computed() {
+                                continue;
+                            }
+                            
+                            // Check if this property is used by looking at member expression accesses
+                            let prop_name = match &p.key {
+                                PropName::Ident(ident) => Some(&ident.sym),
+                                PropName::Str(s) => Some(&s.value),
+                                _ => None,
+                            };
+
+                            if let Some(prop_name) = prop_name {
+                                // Check all variables in the current scope to see if any of them
+                                // have this property accessed
+                                let mut is_prop_used = false;
+                                
+                                // Look through all variables to find the parameter variable
+                                // that corresponds to this destructuring pattern
+                                for (id, var_info) in &self.data.vars {
+                                    // Check if this variable is a parameter and has property accesses
+                                    if var_info.flags.contains(VarUsageInfoFlags::DECLARED_AS_FN_PARAM) {
+                                        if var_info.accessed_props.contains_key(prop_name) {
+                                            is_prop_used = true;
+                                            break;
+                                        }
+                                    }
+                                }
+
+                                if !is_prop_used {
+                                    // Property is not used, mark it for removal
+                                    self.take_pat_if_unused(&mut p.value, None, false);
+                                    if p.value.is_invalid() {
+                                        has_changes = true;
+                                    }
+                                }
+                            }
+                        }
+                        ObjectPatProp::Assign(AssignPatProp { key, value, .. }) => {
+                            // Check if this property is used
+                            let mut is_prop_used = false;
+                            
+                            for (_, var_info) in &self.data.vars {
+                                if var_info.flags.contains(VarUsageInfoFlags::DECLARED_AS_FN_PARAM) {
+                                    if var_info.accessed_props.contains_key(&key.sym) {
+                                        is_prop_used = true;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if !is_prop_used {
+                                if let Some(e) = value {
+                                    *value = self.ignore_return_value(e).map(Box::new);
+                                }
+                                if value.is_none() {
+                                    self.take_ident_of_pat_if_unused(key, None);
+                                    if key.is_dummy() {
+                                        has_changes = true;
+                                    }
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+
+                if has_changes {
+                    self.changed = true;
+                    report_change!("unused: Removing unused destructured parameters");
+                    
+                    obj.props.retain(|p| {
+                        match p {
+                            ObjectPatProp::KeyValue(p) => !p.value.is_invalid(),
+                            ObjectPatProp::Assign(p) => !p.key.is_dummy(),
+                            ObjectPatProp::Rest(_) => true,
+                        }
+                    });
+
+                    if obj.props.is_empty() {
+                        name.take();
+                    }
+                }
+                
+                return;
+            }
+        }
+        
+        // Fall back to regular unused pattern handling
+        self.take_pat_if_unused(name, init, is_var_decl);
     }
 
     /// Creates an empty [VarDecl] if `decl` should be removed.
