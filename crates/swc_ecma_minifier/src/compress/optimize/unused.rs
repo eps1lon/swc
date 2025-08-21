@@ -425,9 +425,9 @@ impl Optimizer<'_> {
                                 }
                             }
 
-                            if value.is_none() {
-                                self.take_ident_of_pat_if_unused(key, None);
-                            }
+                            // Always check if the key is unused, not just when there's no default value
+                            // This handles cases like {aaa, bbb, ccc} where only some are used
+                            self.take_ident_of_pat_if_unused(&mut key.id, None);
                         }
                         _ => {}
                     }
