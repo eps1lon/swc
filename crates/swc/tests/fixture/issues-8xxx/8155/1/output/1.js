@@ -11,4 +11,8 @@ let someFn = (xx, x, y)=>[
     })(), badFunction = ()=>_async_to_generator._(function*() {
         console.log(someFn(1, (yield getArray()), (yield getArray())));
     })();
-goodFunction(), badFunction();
+_async_to_generator._(function*() {
+    console.log(someFn(1, (yield getArray()), (yield getArray())));
+})(), _async_to_generator._(function*() {
+    console.log(someFn(1, (yield getArray()), (yield getArray())));
+})();

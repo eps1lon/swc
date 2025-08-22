@@ -990,6 +990,16 @@ fn is_arrow_body_simple_enough_for_copy(e: &Expr) -> Option<u8> {
         Expr::Member(MemberExpr { obj, prop, .. }) if !prop.is_computed() => {
             return Some(is_arrow_body_simple_enough_for_copy(obj)? + 2)
         }
+        Expr::Call(c) => {
+            let mut arg_cost = 0;
+            for arg in &c.args {
+                let cost = is_arrow_body_simple_enough_for_copy(&arg.expr)?;
+                arg_cost += cost;
+                arg_cost += if arg.spread.is_some() { 3 } else { 0 };
+            }
+
+            return Some(arg_cost + 2);
+        }
         Expr::Unary(u) => return Some(is_arrow_body_simple_enough_for_copy(&u.arg)? + 1),
 
         Expr::Bin(b) => {

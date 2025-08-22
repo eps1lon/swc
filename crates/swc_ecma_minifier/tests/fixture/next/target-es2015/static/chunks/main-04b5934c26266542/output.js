@@ -260,7 +260,6 @@
             var _react = _interop_require_default(__webpack_require__(7294)), _headManagerContext = __webpack_require__(8404), _mitt = _interop_require_default(__webpack_require__(5660)), _routerContext = __webpack_require__(3462), _isDynamic = __webpack_require__(8689), _querystring = __webpack_require__(466), _runtimeConfig = __webpack_require__(8027), _utils = __webpack_require__(3794), _portal = __webpack_require__(2207), _headManager = _interop_require_default(__webpack_require__(6007)), _pageLoader = _interop_require_default(__webpack_require__(5181)), _performanceRelayer = _interop_require_default(__webpack_require__(9302)), _routeAnnouncer = __webpack_require__(8982), _router = __webpack_require__(387), _isError = __webpack_require__(676), _imageConfigContext = __webpack_require__(9977), _removeBasePath = __webpack_require__(9320), _hasBasePath = __webpack_require__(4119);
             const ReactDOM = __webpack_require__(745);
             exports.version = "12.3.2-canary.13", exports.router = router, exports.emitter = _mitt.default();
-            const looseToArray = (input)=>[].slice.call(input);
             let initialMatchesMiddleware = !1;
             self.__next_require__ = __webpack_require__;
             class Container extends _react.default.Component {
@@ -488,8 +487,9 @@
                 !// This function has a return type to ensure it doesn't start returning a
                 // Promise. It should remain synchronous.
                 function() {
+                    let input;
                     if (!styleSheets) return;
-                    const currentHrefs = new Set(looseToArray(document.querySelectorAll("style[data-n-href]")).map((tag)=>tag.getAttribute("data-n-href"))), noscript = document.querySelector("noscript[data-n-css]"), nonce = null == noscript ? void 0 : noscript.getAttribute("data-n-css");
+                    const currentHrefs = new Set((input = document.querySelectorAll("style[data-n-href]"), [].slice.call(input)).map((tag)=>tag.getAttribute("data-n-href"))), noscript = document.querySelector("noscript[data-n-css]"), nonce = null == noscript ? void 0 : noscript.getAttribute("data-n-css");
                     styleSheets.forEach((param)=>{
                         let { href, text } = param;
                         if (!currentHrefs.has(href)) {
@@ -504,7 +504,8 @@
                         // we may as well save the CPU cycles:
                         styleSheets && // Ensure this render was not canceled
                         !canceled) {
-                            const desiredHrefs = new Set(styleSheets.map((s)=>s.href)), currentStyleTags = looseToArray(document.querySelectorAll("style[data-n-href]")), currentHrefs = currentStyleTags.map((tag)=>tag.getAttribute("data-n-href"));
+                            let input, input1;
+                            const desiredHrefs = new Set(styleSheets.map((s)=>s.href)), currentStyleTags = (input = document.querySelectorAll("style[data-n-href]"), [].slice.call(input)), currentHrefs = currentStyleTags.map((tag)=>tag.getAttribute("data-n-href"));
                             // Toggle `<style>` tags on or off depending on if they're needed:
                             for(let idx = 0; idx < currentHrefs.length; ++idx)desiredHrefs.has(currentHrefs[idx]) ? currentStyleTags[idx].removeAttribute("media") : currentStyleTags[idx].setAttribute("media", "x");
                             // Reorder styles into intended order:
@@ -514,7 +515,7 @@
                                 const targetTag = document.querySelector('style[data-n-href="'.concat(href, '"]'));
                                 targetTag && (referenceNode.parentNode.insertBefore(targetTag, referenceNode.nextSibling), referenceNode = targetTag);
                             }), // Finally, clean up server rendered stylesheets:
-                            looseToArray(document.querySelectorAll("link[data-n-p]")).forEach((el)=>{
+                            (input1 = document.querySelectorAll("link[data-n-p]"), [].slice.call(input1)).forEach((el)=>{
                                 el.parentNode.removeChild(el);
                             });
                         }
