@@ -1,0 +1,1 @@
+foo(...args), bar(a, ...rest, b);

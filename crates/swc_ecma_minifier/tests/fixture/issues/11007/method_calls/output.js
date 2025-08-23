@@ -1,0 +1,1 @@
+obj.method(), obj.nested.method(arg);
